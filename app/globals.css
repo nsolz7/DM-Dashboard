@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top right, rgba(126, 231, 135, 0.12), transparent 32%),
+    radial-gradient(circle at bottom left, rgba(247, 185, 85, 0.08), transparent 28%),
+    linear-gradient(180deg, #091019 0%, #0b1016 42%, #121a24 100%);
+  color: #edf6ff;
+  font-family: "Trebuchet MS", "Lucida Sans Unicode", "Lucida Grande", "Lucida Sans", Verdana, sans-serif;
+  position: relative;
+}
+
+body::before {
+  background-image: linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 100% 3px;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(126, 231, 135, 0.35);
+  color: #0b1016;
+}
+
+.compendium-flip {
+  display: inline-grid;
+  height: 3.25rem;
+  perspective: 900px;
+  position: relative;
+}
+
+.compendium-flip__sizer {
+  align-items: center;
+  border: 2px solid transparent;
+  display: flex;
+  font-size: clamp(1.1rem, 2.2vw, 1.6rem);
+  font-weight: 700;
+  height: 100%;
+  justify-content: center;
+  letter-spacing: 0.12em;
+  padding: 0 1.75rem;
+  text-transform: uppercase;
+  visibility: hidden;
+  white-space: nowrap;
+}
+
+.compendium-flip__stage {
+  animation: compendium-flip-rotate 2.2s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  display: block;
+  height: 100%;
+  inset: 0;
+  position: absolute;
+  transform-style: preserve-3d;
+  width: 100%;
+}
+
+.compendium-flip__face {
+  align-items: center;
+  background: linear-gradient(180deg, rgba(24, 38, 53, 0.98), rgba(14, 23, 33, 0.98));
+  border: 2px solid #3e5268;
+  box-shadow:
+    0 0 0 1px rgba(11, 16, 22, 0.75),
+    6px 6px 0 0 rgba(11, 16, 22, 0.75);
+  color: #f7b955;
+  display: flex;
+  font-size: clamp(1.1rem, 2.2vw, 1.6rem);
+  font-weight: 700;
+  inset: 0;
+  justify-content: center;
+  letter-spacing: 0.12em;
+  padding: 0 1.75rem;
+  position: absolute;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.compendium-flip__face--front {
+  transform: translateZ(1.6rem);
+}
+
+.compendium-flip__face--top {
+  transform: rotateX(90deg) translateZ(1.6rem);
+}
+
+@keyframes compendium-flip-rotate {
+  0%,
+  46% {
+    transform: rotateX(0deg);
+  }
+
+  72%,
+  100% {
+    transform: rotateX(-90deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compendium-flip__stage {
+    animation: none;
+  }
+}
