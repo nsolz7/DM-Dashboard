@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { CompendiumDetail as CompendiumDetailType, CompendiumType } from "@/types";
 import { CompendiumAssignPanel } from "@/components/compendium/CompendiumAssignPanel";
@@ -491,10 +491,14 @@ interface CompendiumDetailProps {
   type: CompendiumType;
 }
 
+const MIN_RAW_PAYLOAD_HEIGHT = 320;
+
 export function CompendiumDetail({ id, type }: CompendiumDetailProps) {
   const [detail, setDetail] = useState<CompendiumDetailType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const quickViewRef = useRef<HTMLDivElement | null>(null);
+  const [quickViewHeight, setQuickViewHeight] = useState<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -524,6 +528,38 @@ export function CompendiumDetail({ id, type }: CompendiumDetailProps) {
   }, [id, type]);
 
   const previewSections = useMemo(() => (detail ? buildPreviewSections(detail) : []), [detail]);
+  const syncedPayloadHeight =
+    quickViewHeight && quickViewHeight >= MIN_RAW_PAYLOAD_HEIGHT ? quickViewHeight : null;
+
+  useEffect(() => {
+    const element = quickViewRef.current;
+
+    if (!element) {
+      setQuickViewHeight(null);
+      return;
+    }
+
+    const updateHeight = () => {
+      const nextHeight = element.offsetHeight || null;
+      setQuickViewHeight((current) => (current === nextHeight ? current : nextHeight));
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateHeight();
+    });
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [detail, previewSections.length]);
 
   if (isLoading) {
     return <LoadingPanel label="Loading compendium entry..." />;
@@ -547,89 +583,106 @@ export function CompendiumDetail({ id, type }: CompendiumDetailProps) {
         </p>
       </div>
 
-      <div className="grid gap-4 xl:items-stretch xl:grid-cols-[0.9fr_1.1fr]">
-        <PixelPanel className="space-y-4">
-          <p className="text-xs font-bold uppercase tracking-[0.3em] text-crt-muted">Quick View</p>
-          <CompendiumAssignPanel detail={detail} />
-          {previewSections.length ? (
-            <div className="space-y-5">
-              {previewSections.map((section) => {
-                if (section.kind === "fields") {
-                  return (
-                    <div className="space-y-2" key={section.title}>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-crt-accent">{section.title}</p>
-                      {section.fields.map((field, index) => (
-                        <div
-                          className={`flex items-start justify-between gap-4 pb-2 text-sm ${
-                            index === section.fields.length - 1 ? "" : "border-b border-crt-border"
-                          }`}
-                          key={`${section.title}-${field.label}`}
-                        >
-                          <span className="font-bold uppercase tracking-[0.15em] text-crt-muted">{field.label}</span>
-                          <span className="max-w-[60%] text-right text-crt-text">{field.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-
-                if (section.kind === "abilities") {
-                  return (
-                    <div className="space-y-2" key={section.title}>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-crt-accent">{section.title}</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {section.abilities.map((ability) => (
+      <div className="grid gap-4 xl:items-start xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="xl:min-h-0" ref={quickViewRef}>
+          <PixelPanel className="space-y-4">
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-crt-muted">Quick View</p>
+            <CompendiumAssignPanel detail={detail} />
+            {previewSections.length ? (
+              <div className="space-y-5">
+                {previewSections.map((section) => {
+                  if (section.kind === "fields") {
+                    return (
+                      <div className="space-y-2" key={section.title}>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-crt-accent">{section.title}</p>
+                        {section.fields.map((field, index) => (
                           <div
-                            className="border-2 border-crt-border bg-crt-panel-2 px-3 py-2 text-center"
-                            key={`${section.title}-${ability.label}`}
+                            className={`flex items-start justify-between gap-4 pb-2 text-sm ${
+                              index === section.fields.length - 1 ? "" : "border-b border-crt-border"
+                            }`}
+                            key={`${section.title}-${field.label}`}
                           >
-                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-crt-muted">
-                              {ability.label}
-                            </p>
-                            <p className="mt-1 text-lg font-bold text-crt-text">{ability.value}</p>
+                            <span className="font-bold uppercase tracking-[0.15em] text-crt-muted">{field.label}</span>
+                            <span className="max-w-[60%] text-right text-crt-text">{field.value}</span>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  );
-                }
+                    );
+                  }
 
-                if (section.kind === "entries") {
+                  if (section.kind === "abilities") {
+                    return (
+                      <div className="space-y-2" key={section.title}>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-crt-accent">{section.title}</p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {section.abilities.map((ability) => (
+                            <div
+                              className="border-2 border-crt-border bg-crt-panel-2 px-3 py-2 text-center"
+                              key={`${section.title}-${ability.label}`}
+                            >
+                              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-crt-muted">
+                                {ability.label}
+                              </p>
+                              <p className="mt-1 text-lg font-bold text-crt-text">{ability.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (section.kind === "entries") {
+                    return (
+                      <div className="space-y-2" key={section.title}>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-crt-accent">{section.title}</p>
+                        <div className="space-y-2">
+                          {section.entries.map((entry) => (
+                            <div className="border-2 border-crt-border bg-crt-panel-2 p-3" key={`${entry.name}-${entry.text}`}>
+                              <p className="text-xs font-bold uppercase tracking-[0.15em] text-crt-text">{entry.name}</p>
+                              <p className="mt-2 text-sm leading-6 text-crt-muted">{entry.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div className="space-y-2" key={section.title}>
                       <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-crt-accent">{section.title}</p>
-                      <div className="space-y-2">
-                        {section.entries.map((entry) => (
-                          <div className="border-2 border-crt-border bg-crt-panel-2 p-3" key={`${entry.name}-${entry.text}`}>
-                            <p className="text-xs font-bold uppercase tracking-[0.15em] text-crt-text">{entry.name}</p>
-                            <p className="mt-2 text-sm leading-6 text-crt-muted">{entry.text}</p>
-                          </div>
-                        ))}
+                      <div className="border-2 border-crt-border bg-crt-panel-2 p-3">
+                        <p className="text-sm leading-6 text-crt-muted">{section.body}</p>
                       </div>
                     </div>
                   );
+                })}
+              </div>
+            ) : (
+              <EmptyState body="This record does not expose structured preview data." title="No Quick View" />
+            )}
+          </PixelPanel>
+        </div>
+        <div
+          className="xl:min-h-0"
+          style={
+            syncedPayloadHeight
+              ? {
+                  minHeight: `${MIN_RAW_PAYLOAD_HEIGHT}px`,
+                  height: `${syncedPayloadHeight}px`,
+                  maxHeight: `${syncedPayloadHeight}px`
                 }
-
-                return (
-                  <div className="space-y-2" key={section.title}>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-crt-accent">{section.title}</p>
-                    <div className="border-2 border-crt-border bg-crt-panel-2 p-3">
-                      <p className="text-sm leading-6 text-crt-muted">{section.body}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <EmptyState body="This record does not expose structured preview data." title="No Quick View" />
-          )}
-        </PixelPanel>
-        <PixelPanel className="space-y-4 xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:gap-4 xl:overflow-hidden xl:space-y-0">
-          <p className="text-xs font-bold uppercase tracking-[0.3em] text-crt-muted">Raw Payload</p>
-          <pre className="overflow-y-auto whitespace-pre-wrap break-words bg-crt-bg/70 p-4 text-xs text-crt-text xl:h-full xl:min-h-0 xl:flex-1">
-            {JSON.stringify(detail.raw, null, 2)}
-          </pre>
-        </PixelPanel>
+              : {
+                  minHeight: `${MIN_RAW_PAYLOAD_HEIGHT}px`
+                }
+          }
+        >
+          <PixelPanel className="space-y-4 xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:gap-4 xl:space-y-0">
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-crt-muted">Raw Payload</p>
+            <pre className="overflow-y-scroll whitespace-pre-wrap break-words bg-crt-bg/70 p-4 text-xs text-crt-text xl:h-full xl:min-h-0 xl:flex-1">
+              {JSON.stringify(detail.raw, null, 2)}
+            </pre>
+          </PixelPanel>
+        </div>
       </div>
     </div>
   );

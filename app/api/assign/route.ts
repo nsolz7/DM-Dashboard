@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { getFirestore } from "firebase-admin/firestore";
 
 import { initializeAdminForServer } from "@/lib/admin/firebaseAdmin";
-import { hasAuthSession } from "@/lib/firebase/authSession";
+import { getAuthSessionUid, hasAuthSession } from "@/lib/firebase/authSession";
 import { isRecord, toNumber, toStringValue } from "@/lib/utils";
+import { safeCreateCampaignTransaction } from "@/src/lib/transactions/create";
+import { getDmRecipientKey, getPlayerRecipientKey } from "@/src/lib/transactions/recipientKeys";
 
 const ASSIGNABLE_TYPES = new Set(["items", "spells", "traits"]);
 const REMOVABLE_GRANT_TYPES = new Set(["items", "spells", "traits", "features"]);
@@ -84,6 +86,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const dmUid = getAuthSessionUid(request.headers.get("cookie"));
     const initialized = await initializeAdminForServer();
     const db = getFirestore(initialized.app);
     const playerRef = db.collection("campaigns").doc(campaignId).collection("players").doc(playerId);
@@ -182,6 +185,57 @@ export async function POST(request: Request) {
         status: "assigned"
       };
     });
+
+    const dmRecipientKey = dmUid ? getDmRecipientKey(dmUid) : null;
+    const playerRecipientKey = getPlayerRecipientKey(playerId);
+    const recipientKeys = dmRecipientKey ? [dmRecipientKey, playerRecipientKey] : [playerRecipientKey];
+    const humanType = body.type === "items" ? "Item" : body.type === "spells" ? "Spell" : "Trait";
+
+    if (result.status !== "already_assigned") {
+      await safeCreateCampaignTransaction({
+        campaignId,
+        kind: "transaction",
+        category: "compendium_assign",
+        message: {
+          title: `${humanType} Assigned`,
+          body: `${entryName} was ${result.status === "incremented" ? "incremented in" : "added to"} ${playerId}.`,
+          severity: "success",
+          icon: "compendium_assign"
+        },
+        sender: {
+          actorType: "dm",
+          uid: dmUid ?? undefined,
+          displayName: "DM Dashboard"
+        },
+        recipientKeys,
+        recipients: {
+          mode: "single",
+          playerIds: [playerId],
+          includeDm: Boolean(dmRecipientKey)
+        },
+        recipientStateOverrides: {
+          [playerRecipientKey]: {
+            status: "unread"
+          },
+          ...(dmRecipientKey
+            ? {
+                [dmRecipientKey]: {
+                  status: "read"
+                }
+              }
+            : {})
+        },
+        payload: {
+          entityType: body.type.slice(0, -1),
+          entityId: entryId
+        },
+        related: {
+          route: `/players/${encodeURIComponent(playerId)}`,
+          entityType: "compendium_assign",
+          entityId: entryId
+        }
+      });
+    }
 
     return NextResponse.json(result);
   } catch (error) {

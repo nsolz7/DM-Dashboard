@@ -29,6 +29,21 @@ export function getAuthSessionUid(cookieHeader: string | null | undefined): stri
   return parseCookieValue(cookieHeader, AUTH_UID_COOKIE_NAME);
 }
 
+export function getAuthSessionUidFromBrowser(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const fromCookie = getAuthSessionUid(document.cookie);
+
+  if (fromCookie) {
+    return fromCookie;
+  }
+
+  const fromStorage = window.localStorage.getItem(AUTH_UID_STORAGE_KEY);
+  return fromStorage && fromStorage.trim() ? fromStorage : null;
+}
+
 export function markAuthSessionInBrowser(uid?: string | null): void {
   if (typeof window === "undefined") {
     return;

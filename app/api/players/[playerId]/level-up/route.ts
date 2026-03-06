@@ -7,6 +7,8 @@ import { initializeAdminForServer } from "@/lib/admin/firebaseAdmin";
 import { getAuthSessionUid, hasAuthSession } from "@/lib/firebase/authSession";
 import { toIsoString, toStringValue } from "@/lib/utils";
 import { getLevelingPreview, planNextLevelUp } from "@/src/lib/leveling/advancement";
+import { safeCreateCampaignTransaction } from "@/src/lib/transactions/create";
+import { getDmRecipientKey, getPlayerRecipientKey } from "@/src/lib/transactions/recipientKeys";
 import {
   buildLevelHistoryRecord,
   buildPlayerUpdatePatch,
@@ -197,6 +199,68 @@ export async function POST(request: Request, { params }: RouteContext) {
       };
 
       return payload;
+    });
+
+    const dmRecipientKey = createdByUid ? getDmRecipientKey(createdByUid) : null;
+    const playerRecipientKey = getPlayerRecipientKey(playerId);
+    const hasPendingPrompt = result.pendingSelectionsAdded > 0;
+    const recipientKeys = dmRecipientKey ? [dmRecipientKey, playerRecipientKey] : [playerRecipientKey];
+
+    await safeCreateCampaignTransaction({
+      campaignId,
+      kind: hasPendingPrompt ? "prompt" : "transaction",
+      category: "level_up",
+      message: {
+        title: `Level Up: ${playerId} reached level ${result.nextLevel}`,
+        body: hasPendingPrompt
+          ? `Level up applied (+${result.hpGain} HP). ${result.pendingSelectionsAdded} follow-up selection prompt(s) need attention.`
+          : `Level up applied successfully (+${result.hpGain} HP, now ${result.currentHp}/${result.maxHp}).`,
+        severity: "success",
+        icon: "level_up"
+      },
+      sender: {
+        actorType: "dm",
+        uid: createdByUid ?? undefined,
+        displayName: "DM Dashboard"
+      },
+      recipientKeys,
+      recipients: {
+        mode: "single",
+        playerIds: [playerId],
+        includeDm: Boolean(dmRecipientKey)
+      },
+      recipientStateOverrides: {
+        [playerRecipientKey]: {
+          status: hasPendingPrompt ? "pending_response" : "unread"
+        },
+        ...(dmRecipientKey
+          ? {
+              [dmRecipientKey]: {
+                status: "read"
+              }
+            }
+          : {})
+      },
+      prompt: hasPendingPrompt
+        ? {
+            promptType: "level_up_choice",
+            question: `Review and confirm level ${result.nextLevel} choices for ${playerId}.`,
+            responseKind: "ack",
+            required: true
+          }
+        : null,
+      payload: {
+        entityType: "level_up",
+        entityId: result.txId,
+        amount: {
+          hpGain: result.hpGain
+        }
+      },
+      related: {
+        route: `/players/${encodeURIComponent(playerId)}`,
+        entityType: "level_up",
+        entityId: result.txId
+      }
     });
 
     return NextResponse.json(result);

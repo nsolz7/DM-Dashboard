@@ -1,3 +1,4 @@
+import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { CampaignDropdown } from "@/components/shell/CampaignDropdown";
 
 interface AppHeaderProps {
@@ -21,7 +22,10 @@ export function AppHeader({ isNavOpen, onToggleNav }: AppHeaderProps) {
           <h1 className="text-lg font-bold uppercase tracking-[0.16em] text-crt-text">Dungeon Master Dashboard</h1>
         </div>
       </div>
-      <CampaignDropdown />
+      <div className="flex items-center gap-3">
+        <NotificationsBell />
+        <CampaignDropdown />
+      </div>
     </header>
   );
 }

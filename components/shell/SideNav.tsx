@@ -1,6 +1,6 @@
 "use client";
 
-import { faBars, faBookOpen, faHouse, faMap, faUsers, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faBars, faBell, faBookOpen, faHouse, faMap, faSackDollar, faSliders, faUsers, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import Link from "next/link";
 
@@ -16,7 +16,10 @@ const navLinks = [
   { href: "/dashboard", label: "Dashboard", icon: faHouse },
   { href: "/party", label: "Party", icon: faUsers },
   { href: "/scenario", label: "Scenario", icon: faMap },
-  { href: "/compendium", label: "Compendium", icon: faBookOpen }
+  { href: "/loot", label: "Loot", icon: faSackDollar },
+  { href: "/notifications", label: "Notifications", icon: faBell },
+  { href: "/compendium", label: "Compendium", icon: faBookOpen },
+  { href: "/settings", label: "Settings", icon: faSliders }
 ];
 
 export function SideNav({ isOpen, onToggle }: SideNavProps) {

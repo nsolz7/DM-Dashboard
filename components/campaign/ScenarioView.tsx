@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { ScenarioState } from "@/types";
 import { BarterPanel } from "@/components/Barter/BarterPanel";
 import { RecentTransactions } from "@/components/Barter/RecentTransactions";
+import { LootBuilderPanel } from "@/components/Loot/LootBuilderPanel";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { LoadingPanel } from "@/components/shared/LoadingPanel";
@@ -99,6 +100,7 @@ export function ScenarioView() {
       )}
 
       <BarterPanel onApplied={() => setBarterRefreshKey((current) => current + 1)} />
+      <LootBuilderPanel />
       <RecentTransactions
         onTransactionChange={() => setBarterRefreshKey((current) => current + 1)}
         refreshKey={barterRefreshKey}

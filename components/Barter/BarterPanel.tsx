@@ -290,7 +290,7 @@ export function BarterPanel({ onApplied }: BarterPanelProps) {
                   <label className="flex items-center gap-2 text-sm text-crt-text" key={player.id}>
                     <input
                       checked={selectedPlayerIds.includes(player.id)}
-                      className="h-4 w-4 accent-[#7ee787]"
+                      className="pixel-choice"
                       onChange={() => toggleSelectedPlayer(player.id)}
                       type="checkbox"
                     />
@@ -341,7 +341,7 @@ export function BarterPanel({ onApplied }: BarterPanelProps) {
             <label className="flex items-center gap-2 text-sm text-crt-text">
               <input
                 checked={autoMakeChange}
-                className="h-4 w-4 accent-[#7ee787]"
+                className="pixel-choice"
                 disabled={type === "award"}
                 onChange={(event) => setAutoMakeChange(event.target.checked)}
                 type="checkbox"
@@ -351,7 +351,7 @@ export function BarterPanel({ onApplied }: BarterPanelProps) {
             <label className="flex items-center gap-2 text-sm text-crt-text">
               <input
                 checked={allowNegative}
-                className="h-4 w-4 accent-[#7ee787]"
+                className="pixel-choice"
                 onChange={(event) => setAllowNegative(event.target.checked)}
                 type="checkbox"
               />

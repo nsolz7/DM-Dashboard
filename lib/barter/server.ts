@@ -21,6 +21,8 @@ import { initializeAdminForServer } from "@/lib/admin/firebaseAdmin";
 import { getAuthSessionUid, hasAuthSession } from "@/lib/firebase/authSession";
 import { buildBarterTargetDeltas } from "@/lib/barter/plan";
 import { isRecord, toNumber, toStringValue } from "@/lib/utils";
+import { safeCreateCampaignTransaction } from "@/src/lib/transactions/create";
+import { getDmRecipientKey, getPartyRecipientKey, getPlayerRecipientKey } from "@/src/lib/transactions/recipientKeys";
 
 interface AuthContext {
   uid: string;
@@ -52,6 +54,24 @@ export interface AppliedBarterResponse {
     playerId: string;
     balance: CurrencyAmount;
   }>;
+}
+
+function formatCurrencyAmount(amount: CurrencyAmount): string {
+  return currencyKeys
+    .map((key) => `${amount[key]} ${key}`)
+    .join(", ");
+}
+
+function titleCaseTransactionType(type: BarterTxType): string {
+  if (type === "award") {
+    return "Award";
+  }
+
+  if (type === "charge") {
+    return "Charge";
+  }
+
+  return "Transfer";
 }
 
 function timestampToIso(value: unknown): string | null {
@@ -316,6 +336,7 @@ export async function applyBarterRequest(
   }
 
   const reason = validateReason(rawBody.reason);
+  const normalizedAmount = validateCurrencyAmountInput(rawBody.amount);
   const players = await loadCampaignPlayers(campaignId);
   const explicitPlayerIds = validatePlayerIds(rawBody.targetPlayerIds);
   const targetPlayerIds = resolveTargetPlayerIds(players, rawBody.targetMode, explicitPlayerIds);
@@ -333,7 +354,7 @@ export async function applyBarterRequest(
   const targets = buildBarterTargetDeltas({
     type: rawBody.type,
     targetMode: rawBody.targetMode,
-    amount: validateCurrencyAmountInput(rawBody.amount),
+    amount: normalizedAmount,
     targetPlayerIds,
     fromPlayerId,
     toPlayerId,
@@ -344,7 +365,7 @@ export async function applyBarterRequest(
     throw new Error("This transaction does not affect any players.");
   }
 
-  return applyLedgerTransaction(auth, {
+  const result = await applyLedgerTransaction(auth, {
     campaignId,
     type: rawBody.type,
     reason,
@@ -357,6 +378,58 @@ export async function applyBarterRequest(
       reversedByTxId: null
     }
   });
+
+  const dmRecipientKey = getDmRecipientKey(auth.uid);
+  const partyRecipientKey = getPartyRecipientKey(campaignId);
+  const playerRecipientKeys = Array.from(new Set(targets.map((target) => getPlayerRecipientKey(target.playerId))));
+
+  await safeCreateCampaignTransaction({
+    campaignId,
+    kind: "transaction",
+    category: "barter",
+    message: {
+      title: `Barter ${titleCaseTransactionType(rawBody.type)}`,
+      body: `${reason} (${formatCurrencyAmount(normalizedAmount)})`,
+      severity: rawBody.type === "award" ? "success" : rawBody.type === "charge" ? "warning" : "neutral",
+      icon: "barter"
+    },
+    sender: {
+      actorType: "dm",
+      uid: auth.uid,
+      displayName: "DM Dashboard"
+    },
+    recipientKeys: [dmRecipientKey, partyRecipientKey, ...playerRecipientKeys],
+    recipients: {
+      mode:
+        rawBody.targetMode === "party"
+          ? "party"
+          : playerRecipientKeys.length > 1 || rawBody.type === "transfer"
+            ? "multi"
+            : "single",
+      playerIds: Array.from(new Set(targets.map((target) => target.playerId))),
+      includeDm: true
+    },
+    recipientStateOverrides: {
+      [dmRecipientKey]: {
+        status: "read"
+      }
+    },
+    payload: {
+      entityType: "barter_tx",
+      entityId: result.txId,
+      amount: {
+        requested: normalizedAmount,
+        targets: targets.map((target) => ({ playerId: target.playerId, delta: target.delta }))
+      }
+    },
+    related: {
+      route: "/scenario",
+      entityType: "barter_tx",
+      entityId: result.txId
+    }
+  });
+
+  return result;
 }
 
 export async function reverseBarterRequest(
@@ -399,7 +472,7 @@ export async function reverseBarterRequest(
 
   const reasonPrefix = rawBody.reason?.trim() ? `${rawBody.reason.trim()} | ` : "";
 
-  return applyLedgerTransaction(auth, {
+  const result = await applyLedgerTransaction(auth, {
     campaignId,
     type: deriveReverseType(original.type),
     reason: `${reasonPrefix}Reversal: ${original.reason}`,
@@ -413,6 +486,55 @@ export async function reverseBarterRequest(
     },
     updateOriginalTxId: original.id
   });
+
+  const dmRecipientKey = getDmRecipientKey(auth.uid);
+  const partyRecipientKey = getPartyRecipientKey(campaignId);
+  const playerRecipientKeys = Array.from(
+    new Set(reverseTargets.map((target) => getPlayerRecipientKey(target.playerId)))
+  );
+
+  await safeCreateCampaignTransaction({
+    campaignId,
+    kind: "transaction",
+    category: "barter",
+    message: {
+      title: "Barter Reversal",
+      body: `Reversal applied for transaction ${original.id}.`,
+      severity: "warning",
+      icon: "barter"
+    },
+    sender: {
+      actorType: "dm",
+      uid: auth.uid,
+      displayName: "DM Dashboard"
+    },
+    recipientKeys: [dmRecipientKey, partyRecipientKey, ...playerRecipientKeys],
+    recipients: {
+      mode: playerRecipientKeys.length > 1 ? "multi" : "single",
+      playerIds: Array.from(new Set(reverseTargets.map((target) => target.playerId))),
+      includeDm: true
+    },
+    recipientStateOverrides: {
+      [dmRecipientKey]: {
+        status: "read"
+      }
+    },
+    payload: {
+      entityType: "barter_tx_reversal",
+      entityId: result.txId,
+      amount: {
+        reversalOfTxId: original.id,
+        targets: reverseTargets
+      }
+    },
+    related: {
+      route: "/scenario",
+      entityType: "barter_tx",
+      entityId: result.txId
+    }
+  });
+
+  return result;
 }
 
 export async function listRecentCurrencyTransactions(

@@ -15,6 +15,7 @@ Local-first DM dashboard for managing Dungeons & Dragons campaigns with Next.js,
   - `campaigns/{campaignId}/scenario/current`
 - Compendium search/results/detail pages backed by the local DnData API
 - Scenario page barter tools for DM-controlled currency awards, charges, transfers, and a reversible ledger
+- Campaign-scoped transactions / notifications with a DM inbox, header dropdown, and DM-only toasts
 - An optional read-only Firestore inspection script
 
 ## Step 0 Findings
@@ -203,6 +204,138 @@ Leveling math tests are covered by:
 ```bash
 npm run test:leveling
 ```
+
+## Transactions / Notifications
+
+The DM dashboard now reads campaign-scoped notifications from:
+
+- `campaigns/{campaignId}/transactions/{txId}`
+
+Implemented on the web side:
+
+- `/notifications` inbox route
+- header bell dropdown with unread badge
+- DM-only bottom-right toast popups for new unread messages
+- DM-side read / respond / close actions through `PATCH /api/transactions/{txId}`
+- DM-side test sender in `/notifications` (Send Info / Send Prompt)
+- automatic transaction creation from:
+  - barter apply / reverse
+  - level-up apply
+  - compendium assign (item/spell/trait)
+
+The client query shape is:
+
+- `where("recipientKeys", "array-contains", "dm_<uid>")`
+- `orderBy("createdAt", "desc")`
+- `limit(50)` for the inbox and `limit(10)` for the header dropdown
+
+Because of that query, Firestore will typically require a composite index on:
+
+- collection: `campaigns/{campaignId}/transactions`
+- fields: `recipientKeys` (array) + `createdAt` (descending)
+
+The dashboard now includes a fallback query path if that index is missing, so notifications still load while you create the index.
+
+An index template is included in this repo at:
+
+- [`firestore.indexes.json`](/Users/nicholas_soltis/Desktop/septagon-dm-dashboard-web/firestore.indexes.json)
+
+Minimal Firestore rules expectations for this feature:
+
+- authenticated DMs can read/write transactions where `recipientKeys` contains `dm_<uid>`
+- players should eventually be limited to transactions where `recipientKeys` contains either `player_<playerId>` or `party_<campaignId>`, and the app’s player auth mapping confirms access
+- on this web app, writes are DM-only and flow through the local Next.js API route, which uses the Admin SDK
+
+Transaction recipient key formats are fixed:
+
+- `dm_<dmUid>`
+- `player_<playerId>`
+- `party_<campaignId>`
+
+## Loot Drops
+
+DM-side loot delivery is now available on:
+
+- `/scenario` (Loot Builder panel)
+- `/loot` (recent loot drops and claim status viewer)
+
+Firestore collections used:
+
+- `campaigns/{campaignId}/loot_drops/{lootId}`
+- `campaigns/{campaignId}/custom_items/{customItemId}`
+- `campaigns/{campaignId}/transactions/{txId}` (category `loot`)
+
+Loot send flow creates:
+
+1. a `loot_drops` document with entries, optional coins, delivery mode, and claimState scaffold
+2. a `transactions` document with `kind: "prompt"` and `category: "loot"` referencing `lootId`
+
+Current DM APIs:
+
+- `POST /api/loot/send`
+- `GET /api/loot/list`
+- `GET /api/loot/[lootId]?campaignId=...`
+- `GET /api/custom-items?campaignId=...`
+- `POST /api/custom-items`
+
+Index notes:
+
+- the existing `transactions` composite index (`recipientKeys` array + `createdAt desc`) is still required for notification queries
+- `loot_drops` and `custom_items` currently use simple `orderBy(createdAt desc)` queries (no extra composite index needed for current DM flows)
+
+Minimal security-rules expectations:
+
+- authenticated DM can create/read campaign `loot_drops` and `custom_items`
+- authenticated DM can create loot-related campaign `transactions`
+- player clients should only read/claim `loot_drops` targeted to their `player_<id>` or `party_<campaignId>` recipient keys
+- claim updates should remain transaction-safe and scoped to each targeted drop doc
+
+## Equip / Equipped System
+
+DM-side equipment management is now available on:
+
+- `/players/{playerId}` (slot grid + inventory equip controls)
+- `/settings` (campaign equip rules)
+
+Campaign settings path:
+
+- `campaigns/{campaignId}/settings/equip`
+
+If this settings doc is missing, the server seeds it on first read with defaults:
+
+- slot counts for head/body/cloak/hands/feet/bracers/neck/mainHand/offHand and `rings: 2`
+- `enforceAttunementLimit: true`
+- `attunementLimit: 3`
+- `enforceWeight: false`
+
+Player equipment path:
+
+- `campaigns/{campaignId}/players/{playerId}` -> `equipment`
+
+Server endpoints (DM auth required):
+
+- `GET /api/equipment/settings?campaignId=...`
+- `POST /api/equipment/settings`
+- `POST /api/equipment/equip`
+- `POST /api/equipment/unequip`
+- `POST /api/equipment/swap`
+
+Equipment writes run inside Firestore transactions and also update legacy sheet compatibility fields at:
+
+- `campaigns/{campaignId}/sheets/{playerId}` -> `equipment.equippedWeaponIds`
+- `campaigns/{campaignId}/sheets/{playerId}` -> `equipment.equippedArmorId`
+
+DM-driven equip changes emit campaign transactions with:
+
+- `category: "equip"`
+- `kind: "info"`
+- recipient key includes `player_<playerId>` (and DM key when available)
+
+Minimal security-rules expectations:
+
+- authenticated DM can read/write `campaigns/{campaignId}/settings/equip`
+- authenticated DM can read/write targeted `campaigns/{campaignId}/players/{playerId}` and `campaigns/{campaignId}/sheets/{playerId}`
+- authenticated DM can create equip notifications in `campaigns/{campaignId}/transactions/{txId}`
 
 ## Project Notes
 

@@ -19,6 +19,7 @@ import type {
   ScenarioState
 } from "@/types";
 import { normalizeCurrencyFields } from "@/lib/currency";
+import { normalizePlayerEquipment } from "@/lib/equipment/schema";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
 import { resolveStorageUrl } from "@/lib/firebase/storage";
 import { emptyAbilityScores, isRecord, readableId, toIsoString, toNumber, toStringValue } from "@/lib/utils";
@@ -101,16 +102,22 @@ function mapInventoryStacks(value: unknown): PlayerInventoryStack[] {
 
   return value
     .filter((item): item is Record<string, unknown> => isRecord(item))
-    .map((item) => ({
-      itemId: toStringValue(item.itemId),
-      qty: toNumber(item.qty),
-      equipped: item.equipped === true,
-      attuned: item.attuned === true,
-      sourceType: toStringValue(item.sourceType),
-      sourceId: toStringValue(item.sourceId),
-      grantedAtLevel: toNumber(item.grantedAtLevel),
-      containerTag: toStringValue(item.containerTag)
-    }));
+    .map((item, index) => {
+      const inventoryItemId =
+        toStringValue(item.inventoryItemId) ?? (toStringValue(item.itemId) ? `legacy-${index}-${toStringValue(item.itemId)}` : null);
+
+      return {
+        inventoryItemId,
+        itemId: toStringValue(item.itemId),
+        qty: toNumber(item.qty),
+        equipped: item.equipped === true,
+        attuned: item.attuned === true,
+        sourceType: toStringValue(item.sourceType),
+        sourceId: toStringValue(item.sourceId),
+        grantedAtLevel: toNumber(item.grantedAtLevel),
+        containerTag: toStringValue(item.containerTag)
+      };
+    });
 }
 
 function mapInventory(
@@ -164,8 +171,11 @@ function mapVitals(
   };
 }
 
-function mapEquipment(source: Record<string, unknown> | null | undefined): PlayerEquipmentState {
-  const equippedArmorId = source?.equippedArmorId;
+function mapEquipment(
+  playerEquipment: Record<string, unknown> | null | undefined,
+  sheetEquipment: Record<string, unknown> | null | undefined
+): PlayerEquipmentState {
+  const equippedArmorId = sheetEquipment?.equippedArmorId;
   const equippedArmorIds = mapStringArray(equippedArmorId);
 
   if (!equippedArmorIds.length) {
@@ -176,9 +186,13 @@ function mapEquipment(source: Record<string, unknown> | null | undefined): Playe
     }
   }
 
+  const normalizedSlots = normalizePlayerEquipment(playerEquipment, null);
+
   return {
-    equippedWeaponIds: mapStringArray(source?.equippedWeaponIds),
-    equippedArmorIds
+    ...normalizedSlots,
+    equippedWeaponIds: mapStringArray(sheetEquipment?.equippedWeaponIds),
+    equippedArmorIds,
+    rings: normalizedSlots.rings
   };
 }
 
@@ -294,6 +308,7 @@ function mapPlayerRecord(
   const sheetSpells = isRecord(sheetData?.spells) ? (sheetData?.spells as Record<string, unknown>) : null;
   const sheetFeatures = isRecord(sheetData?.features) ? (sheetData?.features as Record<string, unknown>) : null;
   const sheetEquipment = isRecord(sheetData?.equipment) ? (sheetData?.equipment as Record<string, unknown>) : null;
+  const playerEquipment = isRecord(playerData?.equipment) ? (playerData?.equipment as Record<string, unknown>) : null;
   const playerGrants = isRecord(playerData?.grants) ? (playerData?.grants as Record<string, unknown>) : null;
   const playerAdvancement = isRecord(playerData?.advancement) ? (playerData?.advancement as Record<string, unknown>) : null;
   const playerBuildMeta = isRecord(playerData?.buildMeta) ? (playerData?.buildMeta as Record<string, unknown>) : null;
@@ -330,7 +345,7 @@ function mapPlayerRecord(
     abilityScores: mapAbilityScores(statsMap),
     inventory: mapInventory(playerInventory, sheetInventory),
     grants: mapGrants(playerGrants),
-    equipment: mapEquipment(sheetEquipment),
+    equipment: mapEquipment(playerEquipment, sheetEquipment),
     spellbook: mapSpellbook(sheetSpells),
     features: mapFeatures(sheetFeatures),
     proficiencies: mapProficiencies(sheetProficiencies),

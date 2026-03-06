@@ -73,6 +73,6 @@ export function clearSelectedCampaignIdInBrowser(): void {
 }
 
 export function routeNeedsCampaign(pathname: string): boolean {
-  const requiredPrefixes = ["/dashboard", "/party", "/players", "/scenario", "/compendium"];
+  const requiredPrefixes = ["/dashboard", "/party", "/players", "/scenario", "/compendium", "/notifications", "/loot", "/settings"];
   return requiredPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }

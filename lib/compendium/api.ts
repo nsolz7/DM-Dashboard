@@ -77,6 +77,81 @@ function getLinkedDataset(refId: string): string {
   return refId.split(".")[0]?.toLowerCase() || "unknown";
 }
 
+function buildLinkedSearchQueries(refId: string, fallbackName?: string): string[] {
+  const fromId = refId.split(".")[1]?.replace(/-[a-f0-9]{8}$/i, "").replace(/[_-]+/g, " ").trim();
+  const candidates = [fallbackName, fromId, readableId(refId)];
+  const seen = new Set<string>();
+  const queries: string[] = [];
+
+  candidates.forEach((candidate) => {
+    if (!candidate) {
+      return;
+    }
+
+    const normalized = candidate.replace(/\s+/g, " ").trim();
+
+    if (!normalized) {
+      return;
+    }
+
+    const key = normalized.toLowerCase();
+
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    queries.push(normalized);
+  });
+
+  return queries;
+}
+
+async function resolveLinkedPayloadBySearch(
+  endpoint: string,
+  refId: string,
+  fallbackName?: string
+): Promise<Record<string, unknown> | null> {
+  const datasetParam = endpoint.replace(/^\/api\//, "");
+  const queries = buildLinkedSearchQueries(refId, fallbackName);
+
+  for (const queryText of queries) {
+    try {
+      const searchPayload = await requestJson<{ items?: unknown[] }>("/api/search", {
+        dataset: datasetParam,
+        q: queryText,
+        limit: 5
+      });
+      const items = (searchPayload.items ?? []).filter((item): item is Record<string, unknown> => isRecord(item));
+
+      if (!items.length) {
+        continue;
+      }
+
+      const lowerQuery = queryText.toLowerCase();
+      const matched =
+        items.find((item) => toStringValue(item.name)?.toLowerCase() === lowerQuery) ??
+        items.find((item) => toStringValue(item.id)?.toLowerCase().includes(lowerQuery.replace(/\s+/g, "-"))) ??
+        items[0];
+      const matchedId = toStringValue(matched.id);
+
+      if (!matchedId) {
+        return matched;
+      }
+
+      try {
+        return await requestJson<Record<string, unknown>>(`${endpoint}/${encodeURIComponent(matchedId)}`);
+      } catch {
+        return matched;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 function summarizeLinkedPayload(payload: Record<string, unknown>): string | null {
   const directSummary = toStringValue(payload.summary) ?? toStringValue(payload.description);
 
@@ -205,6 +280,18 @@ export async function getCompendiumLinkedRecord(refId: string, fallbackName?: st
       raw: payload
     };
   } catch {
+    const resolvedPayload = await resolveLinkedPayloadBySearch(endpoint, refId, fallbackName);
+
+    if (resolvedPayload) {
+      return {
+        id: refId,
+        dataset,
+        name: toStringValue(resolvedPayload.name) ?? fallbackRecord.name,
+        summary: summarizeLinkedPayload(resolvedPayload),
+        raw: resolvedPayload
+      };
+    }
+
     return fallbackRecord;
   }
 }

@@ -1,4 +1,5 @@
 import type { CurrencyAmount } from "@/types/barter";
+import type { PlayerEquipmentSlots } from "@/types/equipment";
 
 export interface AbilityScores {
   str: number | null;
@@ -16,6 +17,7 @@ export interface PlayerAdvancementState {
 }
 
 export interface PlayerInventoryStack {
+  inventoryItemId: string | null;
   itemId: string | null;
   qty: number | null;
   equipped: boolean;
@@ -57,7 +59,7 @@ export interface PlayerVitals {
   speed: number | null;
 }
 
-export interface PlayerEquipmentState {
+export interface PlayerEquipmentState extends PlayerEquipmentSlots {
   equippedWeaponIds: string[];
   equippedArmorIds: string[];
 }

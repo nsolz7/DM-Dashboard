@@ -1,0 +1,128 @@
+import { NextResponse } from "next/server";
+import { getFirestore } from "firebase-admin/firestore";
+
+import { initializeAdminForServer } from "@/lib/admin/firebaseAdmin";
+import {
+  formatEquipmentChangeSummary,
+  mapEquipmentError,
+  swapInventoryItem
+} from "@/lib/equipment/server";
+import { getAuthSessionUid, hasAuthSession } from "@/lib/firebase/authSession";
+import { safeCreateCampaignTransaction } from "@/src/lib/transactions/create";
+import { getDmRecipientKey, getPlayerRecipientKey } from "@/src/lib/transactions/recipientKeys";
+
+interface SwapRequestBody {
+  campaignId: string;
+  playerId: string;
+  inventoryItemId?: string;
+  inventoryIndex?: number;
+  slotHint?: "head" | "body" | "cloak" | "hands" | "feet" | "bracers" | "neck" | "ring" | "mainHand" | "offHand";
+  ringIndex?: number;
+  autoUnequipConflicts?: boolean;
+  weaponHandedness?: "one-handed" | "two-handed" | "versatile" | "unknown";
+  isShield?: boolean;
+}
+
+function unauthorized() {
+  return NextResponse.json({ error: "A DM login session is required." }, { status: 401 });
+}
+
+function badRequest(message: string) {
+  return NextResponse.json({ error: message }, { status: 400 });
+}
+
+export async function POST(request: Request) {
+  if (!hasAuthSession(request.headers.get("cookie"))) {
+    return unauthorized();
+  }
+
+  let body: SwapRequestBody;
+
+  try {
+    body = (await request.json()) as SwapRequestBody;
+  } catch {
+    return badRequest("Invalid JSON payload.");
+  }
+
+  const dmUid = getAuthSessionUid(request.headers.get("cookie"));
+
+  try {
+    const initialized = await initializeAdminForServer();
+    const db = getFirestore(initialized.app);
+    const result = await swapInventoryItem(db, {
+      campaignId: body.campaignId,
+      playerId: body.playerId,
+      inventoryItemId: body.inventoryItemId,
+      inventoryIndex: body.inventoryIndex,
+      slotHint: body.slotHint,
+      ringIndex: body.ringIndex,
+      autoUnequipConflicts: body.autoUnequipConflicts,
+      weaponHandedness: body.weaponHandedness,
+      isShield: body.isShield
+    });
+
+    const playerRecipientKey = getPlayerRecipientKey(result.playerId);
+    const dmRecipientKey = dmUid ? getDmRecipientKey(dmUid) : null;
+    const recipientKeys = dmRecipientKey ? [dmRecipientKey, playerRecipientKey] : [playerRecipientKey];
+    const changeSummary = formatEquipmentChangeSummary(result.changes);
+
+    await safeCreateCampaignTransaction({
+      campaignId: result.campaignId,
+      kind: "info",
+      category: "equip",
+      message: {
+        title: "Equipment Updated",
+        body: `DM swapped equipment to ${result.itemName} for ${result.playerName ?? result.playerId}. ${changeSummary}`,
+        severity: "success",
+        icon: "equip"
+      },
+      sender: {
+        actorType: "dm",
+        uid: dmUid ?? undefined,
+        displayName: "DM Dashboard"
+      },
+      recipientKeys,
+      recipients: {
+        mode: "single",
+        playerIds: [result.playerId],
+        includeDm: Boolean(dmRecipientKey)
+      },
+      recipientStateOverrides: {
+        [playerRecipientKey]: {
+          status: "unread"
+        },
+        ...(dmRecipientKey
+          ? {
+              [dmRecipientKey]: {
+                status: "read"
+              }
+            }
+          : {})
+      },
+      payload: {
+        entityType: "equipment",
+        entityId: result.playerId,
+        amount: {
+          changes: result.changes
+        }
+      },
+      related: {
+        route: `/players/${encodeURIComponent(result.playerId)}`,
+        entityType: "player",
+        entityId: result.playerId
+      }
+    });
+
+    return NextResponse.json(result);
+  } catch (error) {
+    const mapped = mapEquipmentError(error);
+    return NextResponse.json(
+      {
+        error: mapped.message,
+        code: mapped.code,
+        details: mapped.details
+      },
+      { status: mapped.status }
+    );
+  }
+}
